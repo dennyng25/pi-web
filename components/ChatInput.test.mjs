@@ -17,6 +17,7 @@ const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
 // as a second copy, and ChatInput would never see the drafts set here (#1211).
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
+import { activeSlashToken, replaceSlashToken } from "../lib/slash-token.ts";
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
@@ -97,6 +98,8 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["Ctrl+Enter mode: Enter completes an exact slash command instead of sending it", {}, { enterSendMode: "ctrlEnter", isStreaming: false, slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin" }] }, "slash"],
     ["Ctrl+Enter mode: Ctrl+Enter sends an exact slash command", { ctrlKey: true }, { enterSendMode: "ctrlEnter", isStreaming: false, slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin" }] }, "send"],
     ["mobile ignores Ctrl+Enter mode for plain Enter", {}, { enterSendMode: "ctrlEnter", isMobile: true }, "native"],
+    ["an inline slash command completes instead of sending", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "hi /copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "slash"],
+    ["Ctrl+Enter mode: an inline slash command still does not send", { ctrlKey: true }, { enterSendMode: "ctrlEnter", isStreaming: false, slashMenuOpen: true, slashQuery: "copy", value: "hi /copy", displayedSlashCommands: [{ name: "copy", source: "builtin" }] }, "slash"],
     // An extension's dialog hides the menus (#1678): Enter must not pick from one the user cannot see.
     ["an open extension dialog hides slash completion", {}, { isStreaming: false, extensionUiOpen: true, slashMenuOpen: true, slashQuery: "help" }, "send"],
     ["an open extension dialog hides file completion", {}, { isStreaming: false, extensionUiOpen: true, atMenuOpen: true, atQuery: {} }, "send"],
@@ -129,6 +132,45 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     });
     assert.equal(action, expected, name);
   }
+});
+
+test("a slash command completes where it is typed, keeping the text around it", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findApply(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "applySlashCommand") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findApply);
+  }
+  const script = new Script(ts.transpileModule(findApply(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+
+  const run = (draft, caret) => {
+    const state = { value: draft, selection: null };
+    const textarea = { focus() {}, setSelectionRange(start) { state.selection = start; } };
+    const apply = script.runInNewContext({
+      useCallback: (fn) => fn,
+      valueRef: { current: draft },
+      textareaRef: { current: textarea },
+      setValue(next) { state.value = next; },
+      setSlashMenuOpen() {},
+      setSlashActiveIndex() {},
+      setSlashCaret() {},
+      requestAnimationFrame(fn) { fn(); },
+      autoGrowTextarea() {},
+      activeSlashToken,
+      replaceSlashToken,
+      slashTokenRef: { current: activeSlashToken(draft, caret) },
+    });
+    apply({ name: "skill:brainstorming", source: "skill" }, caret);
+    return state;
+  };
+
+  // Typed after other text: only the token is replaced.
+  assert.deepEqual(run("hi /br there", 6), { value: "hi /skill:brainstorming there", selection: 24 });
+  // Typed at the draft's start: unchanged from the leading-command behavior.
+  assert.deepEqual(run("/br", 3), { value: "/skill:brainstorming ", selection: 21 });
 });
 
 test("file mention insertion uses one native undoable edit", () => {
