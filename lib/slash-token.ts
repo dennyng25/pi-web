@@ -10,14 +10,16 @@ export type SlashToken = {
 };
 
 export function activeSlashToken(text: string, caret: number | null): SlashToken | null {
-  const end = caret ?? text.length;
-  if (end < 0 || end > text.length) return null;
-  let start = end;
+  const at = caret ?? text.length;
+  if (at < 0 || at > text.length) return null;
+  let start = at;
   while (start > 0 && !/\s/.test(text[start - 1])) start -= 1;
+  let end = at;
+  while (end < text.length && !/\s/.test(text[end])) end += 1;
   const token = text.slice(start, end);
   if (!token.startsWith("/") || token.includes("/", 1)) return null;
   if (start > 0 && !/\s/.test(text[start - 1])) return null;
-  return { start, end, query: token.slice(1).toLowerCase() };
+  return { start, end, query: text.slice(start + 1, at).toLowerCase() };
 }
 
 export function replaceSlashToken(
