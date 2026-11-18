@@ -3,6 +3,7 @@
 import React, { memo, useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
+import { activeSlashToken, replaceSlashToken, type SlashToken } from "@/lib/slash-token";
 import type { TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
@@ -754,6 +755,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  // A caret only means something for the text it was measured in, so a recall
+  // or a quote falls back to the draft's end instead of a stale offset.
+  const [slashCaret, setSlashCaret] = useState<{ text: string; caret: number } | null>(null);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashMenuMaxHeight, setSlashMenuMaxHeight] = useState<number | null>(null);
   const [atQuery, setAtQuery] = useState<AtQueryMatch | null>(null);
@@ -1216,9 +1220,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     onSend(msg, attachedImages.length ? attachedImages : undefined);
   }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
-  const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
-    ? value.slice(1).toLowerCase()
-    : null;
+  // The command token at the caret, so `/` opens the palette after other text
+  // too. A caret-less draft (recall, quote) falls back to the end.
+  const slashToken: SlashToken | null = compact ? null : activeSlashToken(
+    value,
+    slashCaret?.text === value ? slashCaret.caret : null,
+  );
+  const slashQuery = slashToken?.query ?? null;
+  const slashTokenRef = useRef(slashToken);
+  slashTokenRef.current = slashToken;
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
@@ -1405,15 +1415,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
-    const nextValue = `/${command.name} `;
-    setValue(nextValue);
+    const current = valueRef.current;
+    // No token at the caret (an older menu state): keep the whole-draft insert.
+    const token = slashTokenRef.current ?? { start: 0, end: current.length, query: "" };
+    const next = replaceSlashToken(current, token, command.name);
+    valueRef.current = next.text;
+    setValue(next.text);
     setSlashMenuOpen(false);
     setSlashActiveIndex(0);
+    // The completed token needs no palette: also keeps it shut for a caret the
+    // next keystroke moves back into the inserted text.
+    setSlashCaret(null);
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
       ta.focus();
-      ta.setSelectionRange(nextValue.length, nextValue.length);
+      ta.setSelectionRange(next.caret, next.caret);
       autoGrowTextarea(ta);
     });
   }, []);
@@ -2440,10 +2457,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               setValue(e.target.value);
               setHistoryMenuOpen(false);
               updateAtQuery(e.target.value, e.target.selectionStart);
+              setSlashCaret({ text: e.target.value, caret: e.target.selectionStart });
             }}
             onSelect={(e) => {
               const el = e.currentTarget;
               updateAtQuery(el.value, el.selectionStart);
+              // Only a caret move inside an open palette follows the caret: opening
+              // on a bare move left the palette swallowing the arrows that moved it.
+              if (slashMenuOpen) setSlashCaret({ text: el.value, caret: el.selectionStart });
             }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => {
