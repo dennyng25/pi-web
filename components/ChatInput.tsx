@@ -2462,7 +2462,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             onSelect={(e) => {
               const el = e.currentTarget;
               updateAtQuery(el.value, el.selectionStart);
-              setSlashCaret({ text: el.value, caret: el.selectionStart });
+              // Only a caret move inside an open palette follows the caret: opening
+              // on a bare move left the palette swallowing the arrows that moved it.
+              if (slashMenuOpen) setSlashCaret({ text: el.value, caret: el.selectionStart });
             }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => {
