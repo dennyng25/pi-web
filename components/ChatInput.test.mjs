@@ -87,6 +87,8 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["available built-in commands take priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "send"],
     ["pi's built-in /mcp submits at once, also while streaming", {}, { slashMenuOpen: true, slashQuery: "mcp", value: "/mcp", displayedSlashCommands: [{ name: "mcp", source: "extension", sourceInfo: { path: "builtin:mcp" } }] }, "send"],
     ["another extension's /mcp completes first", {}, { slashMenuOpen: true, slashQuery: "mcp", value: "/mcp", displayedSlashCommands: [{ name: "mcp", source: "extension", sourceInfo: { path: "/ext/mcp.ts" } }] }, "slash"],
+    ["an inline /mcp completes instead of opening Settings", {}, { slashMenuOpen: true, slashQuery: "mcp", value: "hi /mcp", displayedSlashCommands: [{ name: "mcp", source: "extension", sourceInfo: { path: "builtin:mcp" } }] }, "slash"],
+    ["an inline exact built-in completes instead of sending", {}, { slashMenuOpen: true, slashQuery: "copy", value: "hi /copy ", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "slash"],
     ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
     ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
     ["Ctrl+Enter mode: Enter inserts a newline", {}, { enterSendMode: "ctrlEnter", isStreaming: false }, "native"],
